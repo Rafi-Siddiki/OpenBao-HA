@@ -1,0 +1,10 @@
+services:
+  haproxy:
+    image: haproxy:lts
+    container_name: haproxy-openbao
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+      - "8404:8404"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro

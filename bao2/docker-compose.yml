@@ -1,0 +1,17 @@
+services:
+  openbao:
+    image: openbao/openbao:latest
+    container_name: openbao
+    restart: unless-stopped
+    command: server -config=/openbao/config/openbao.hcl
+    ports:
+      - "8200:8200"
+      - "8201:8201"
+    volumes:
+      - ./config:/openbao/config
+      - openbao-data:/openbao/file
+      - openbao-logs:/openbao/logs
+
+volumes:
+  openbao-data:
+  openbao-logs:
