@@ -6,26 +6,86 @@ A clean, user-friendly deployment guide for running a **3-node OpenBao HA cluste
 
 ---
 
+## 🎯 Why We Are Deploying OpenBao
+
+At the moment, our applications do **not** have a centralized environment variable or secret management system.  
+This means `.env` values need to be updated manually by logging into individual servers, which can become difficult to manage as the number of services and servers grows.
+
+This creates common operational problems:
+
+- Environment variables are scattered across multiple servers.
+- Updates require manual server access.
+- Different servers may accidentally have different `.env` values.
+- Secret rotation becomes harder.
+- There is no single controlled place for application secrets.
+- Manual changes increase the risk of human error.
+
+OpenBao helps solve this by acting as a **centralized secret management server**. Instead of storing important values directly inside each server’s `.env` file, applications can fetch required secrets and configuration values from OpenBao.
+
+In this setup, OpenBao is deployed in **High Availability mode**, so secret access can continue even if one OpenBao node goes down.
+
+```text
+Before:
+  App Server 1 -> local .env
+  App Server 2 -> local .env
+  App Server 3 -> local .env
+
+After:
+  App Servers -> HAProxy -> OpenBao HA Cluster -> centralized secrets
+```
+
+✅ Centralized secret storage  
+✅ Easier secret updates  
+✅ Reduced manual server changes  
+✅ Better consistency across application servers  
+✅ HA/fail-safe OpenBao backend  
+✅ Foundation for future automated secret injection  
+
+---
+
+## 🔐 What is OpenBao?
+
+**OpenBao** is an open-source secrets management system. It is used to securely store, manage, access, and rotate sensitive information such as:
+
+- Application environment variables
+- API keys
+- Database credentials
+- Tokens
+- Passwords
+- Certificates
+- Service credentials
+
+OpenBao allows applications and administrators to retrieve secrets from a central location instead of keeping sensitive values scattered across many servers or configuration files.
+
+In our case, OpenBao will be used as the central place for managing application `.env` values and other secrets.  
+The HA setup ensures that this central secret service remains available even if one OpenBao node becomes unavailable.
+
+
+---
+
 ## 📌 Table of Contents
 
+- [Why We Are Deploying OpenBao](#-why-we-are-deploying-openbao)
+- [What is OpenBao?](#-what-is-openbao)
 - [1. Architecture Overview](#1-architecture-overview)
 - [2. Server Inventory](#2-server-inventory)
 - [3. What This Setup Provides](#3-what-this-setup-provides)
 - [4. Port Usage](#4-port-usage)
 - [5. Docker Installation](#5-docker-installation)
-- [6. Directory Layout](#6-directory-layout)
-- [7. OpenBao Docker Deployment](#7-openbao-docker-deployment)
-- [8. OpenBao Node Configurations](#8-openbao-node-configurations)
-- [9. Initialize and Unseal OpenBao](#9-initialize-and-unseal-openbao)
-- [10. Verify Raft Cluster Health](#10-verify-raft-cluster-health)
-- [11. HAProxy Docker Deployment](#11-haproxy-docker-deployment)
-- [12. Single Entry Point](#12-single-entry-point)
-- [13. Failover Behavior](#13-failover-behavior)
-- [14. Daily Operations](#14-daily-operations)
-- [15. Backup Procedure](#15-backup-procedure)
-- [16. Troubleshooting Notes](#16-troubleshooting-notes)
-- [17. Security Notes](#17-security-notes)
-- [18. Future Improvements](#18-future-improvements)
+- [6. Hostname Resolution](#6-hostname-resolution)
+- [7. Directory Layout](#7-directory-layout)
+- [8. OpenBao Docker Deployment](#8-openbao-docker-deployment)
+- [9. OpenBao Node Configurations](#9-openbao-node-configurations)
+- [10. Initialize and Unseal OpenBao](#10-initialize-and-unseal-openbao)
+- [11. Verify Raft Cluster Health](#11-verify-raft-cluster-health)
+- [12. HAProxy Docker Deployment](#12-haproxy-docker-deployment)
+- [13. Single Entry Point](#13-single-entry-point)
+- [14. Failover Behavior](#14-failover-behavior)
+- [15. Daily Operations](#15-daily-operations)
+- [16. Backup Procedure](#16-backup-procedure)
+- [17. Troubleshooting Notes](#17-troubleshooting-notes)
+- [18. Security Notes](#18-security-notes)
+- [19. Future Improvements](#19-future-improvements)
 
 ---
 
@@ -139,7 +199,53 @@ Then log out and log in again.
 
 ---
 
-## 6. Directory Layout
+## 6. Hostname Resolution
+
+Edit `/etc/hosts` on **all 4 servers** so each node can resolve the HAProxy and OpenBao node names locally.
+
+Run:
+
+```bash
+sudo nano /etc/hosts
+```
+
+Add or confirm the following entries:
+
+```text
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+10.9.0.70 bao-lb.local bao-lb
+10.9.0.71 bao1.local bao1
+10.9.0.72 bao2.local bao2
+10.9.0.73 bao3.local bao3
+```
+
+Verify hostname resolution:
+
+```bash
+getent hosts bao-lb
+getent hosts bao1
+getent hosts bao2
+getent hosts bao3
+```
+
+Expected result:
+
+```text
+10.9.0.70      bao-lb.local bao-lb
+10.9.0.71      bao1.local bao1
+10.9.0.72      bao2.local bao2
+10.9.0.73      bao3.local bao3
+```
+
+---
+
+## 7. Directory Layout
 
 ### On each OpenBao node
 
@@ -160,7 +266,7 @@ Then log out and log in again.
 
 ---
 
-## 7. OpenBao Docker Deployment
+## 8. OpenBao Docker Deployment
 
 Run this on each OpenBao node:
 
@@ -212,13 +318,13 @@ sudo docker logs -f openbao
 
 ---
 
-## 8. OpenBao Node Configurations
+## 9. OpenBao Node Configurations
 
 > Important: each node has a different `cluster_addr` and `node_id`.
 
 ---
 
-### 8.1 `bao1` Configuration
+### 9.1 `bao1` Configuration
 
 Node:
 
@@ -255,7 +361,7 @@ storage "raft" {
 
 ---
 
-### 8.2 `bao2` Configuration
+### 9.2 `bao2` Configuration
 
 Node:
 
@@ -300,7 +406,7 @@ storage "raft" {
 
 ---
 
-### 8.3 `bao3` Configuration
+### 9.3 `bao3` Configuration
 
 Node:
 
@@ -345,9 +451,9 @@ storage "raft" {
 
 ---
 
-## 9. Initialize and Unseal OpenBao
+## 10. Initialize and Unseal OpenBao
 
-### 9.1 Initialize Cluster
+### 10.1 Initialize Cluster
 
 Initialization is done **only once** on the first node, `bao1`.
 
@@ -374,7 +480,7 @@ The output contains:
 
 ---
 
-### 9.2 Unseal a Node
+### 10.2 Unseal a Node
 
 Run this command three times and enter three different unseal keys:
 
@@ -406,9 +512,9 @@ bao3
 
 ---
 
-## 10. Verify Raft Cluster Health
+## 11. Verify Raft Cluster Health
 
-### 10.1 List Raft Peers
+### 11.1 List Raft Peers
 
 Run from any unsealed OpenBao node:
 
@@ -430,7 +536,7 @@ The leader may change after failover.
 
 ---
 
-### 10.2 Check Autopilot State
+### 11.2 Check Autopilot State
 
 ```bash
 sudo docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao operator raft autopilot state
@@ -452,7 +558,7 @@ Voters:
 
 ---
 
-## 11. HAProxy Docker Deployment
+## 12. HAProxy Docker Deployment
 
 Run on the HAProxy node:
 
@@ -548,7 +654,7 @@ sudo docker logs -f haproxy-openbao
 
 ---
 
-## 12. Single Entry Point
+## 13. Single Entry Point
 
 All clients, applications, and admins should use:
 
@@ -566,7 +672,7 @@ Using the single entry point ensures clients always reach the active OpenBao nod
 
 ---
 
-## 13. Failover Behavior
+## 14. Failover Behavior
 
 HAProxy checks every OpenBao backend using:
 
@@ -602,7 +708,7 @@ There may be a short failover delay of a few seconds.
 
 ---
 
-## 14. Daily Operations
+## 15. Daily Operations
 
 ### Start OpenBao
 
@@ -667,7 +773,7 @@ http://10.9.0.70:8404/stats
 
 ---
 
-## 15. Backup Procedure
+## 16. Backup Procedure
 
 Raft snapshots should be taken regularly.
 
@@ -704,9 +810,9 @@ Recommended:
 
 ---
 
-## 16. Troubleshooting Notes
+## 17. Troubleshooting Notes
 
-### 16.1 OpenBao Container Restart Loop
+### 17.1 OpenBao Container Restart Loop
 
 Check logs:
 
@@ -714,7 +820,7 @@ Check logs:
 sudo docker logs -f openbao
 ```
 
-### 16.2 Raft DB Path Error
+### 17.2 Raft DB Path Error
 
 If you see an error similar to:
 
@@ -730,7 +836,7 @@ storage "raft" {
 }
 ```
 
-### 16.3 Do Not Mount Config as Read-Only
+### 17.3 Do Not Mount Config as Read-Only
 
 Avoid:
 
@@ -744,7 +850,7 @@ Use:
 - ./config:/openbao/config
 ```
 
-### 16.4 Node is Sealed After Restart
+### 17.4 Node is Sealed After Restart
 
 Unseal it again:
 
@@ -754,7 +860,7 @@ sudo docker exec -it -e BAO_ADDR=http://127.0.0.1:8200 openbao bao operator unse
 sudo docker exec -it -e BAO_ADDR=http://127.0.0.1:8200 openbao bao operator unseal
 ```
 
-### 16.5 Avoid Accidental Data Loss
+### 17.5 Avoid Accidental Data Loss
 
 Do **not** run this on initialized nodes unless intentionally wiping data:
 
@@ -778,7 +884,27 @@ docker compose restart
 
 ---
 
-## 17. Security Notes
+## 18. Security Notes
+
+### 18.1 `.env` Management Direction
+
+The current environment still depends on manually maintained `.env` files on application servers.
+
+Target direction:
+
+```text
+Application servers should gradually move from local static .env secrets
+to centralized secret retrieval from OpenBao.
+```
+
+Recommended future approach:
+
+- Store sensitive `.env` values in OpenBao.
+- Keep only non-sensitive runtime variables locally when required.
+- Use application-side secret retrieval or deployment-time injection.
+- Apply OpenBao policies so each application can access only its own secrets.
+- Rotate secrets centrally from OpenBao instead of manually editing every server.
+
 
 Current setup intentionally uses:
 
@@ -805,7 +931,7 @@ For production, add:
 
 ---
 
-## 18. Future Improvements
+## 19. Future Improvements
 
 Recommended future architecture:
 
@@ -859,6 +985,9 @@ Single Entry Point:
 
 HAProxy Stats:
   http://10.9.0.70:8404/stats
+
+OpenBao Purpose:
+  Centralized secret and .env variable management
 
 OpenBao Storage:
   Raft Integrated Storage
