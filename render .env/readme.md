@@ -731,8 +731,8 @@ template_config {
 }
 
 template {
-  source               = "/etc/openbao-agent.d/flask.env.ctmpl"
-  destination          = "/opt/flask-app/.env"
+  source               = "/etc/openbao-agent.d/flask.env.ctmpl" -------------> Change according to code base
+  destination          = "/opt/flask-app/.env" -------------------------> .env file location in the code base
   create_dest_dirs     = true
   error_on_missing_key = true
 }
