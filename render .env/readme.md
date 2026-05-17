@@ -603,11 +603,11 @@ If the read works, the machine identity is working correctly.
 ### Screenshot
 
 <p align="center">
-  <img src="../images/06-create-flask-app-read-policy.png" alt="Create flask-app-read policy" width="850">
+  <img src="../images/14-agent-running.png" alt="OpenBao Agent running successfully" width="850">
 </p>
 
 <p align="center">
-  <b>Create flask-app-read policy</b>
+  <b>OpenBao Agent running successfully</b>
 </p>
 
 ---
