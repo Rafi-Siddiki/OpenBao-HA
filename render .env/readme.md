@@ -1,5 +1,5 @@
-# OpenBao UI-First Guide for Beginners
-## Users, Policies, Machine Access, Secret Management, and OpenBao Agent
+# 🔐 OpenBao UI-First Guide for Beginners
+## 👥 Users, Policies, Machine Access, Secret Management, and OpenBao Agent
 
 > This guide is written for people with **zero prior OpenBao knowledge**.
 >
@@ -16,31 +16,49 @@
 
 ---
 
-## Table of Contents
+## 🧭 Table of Contents
 
-1. [What OpenBao is](#what-openbao-is)
-2. [Simple words you need to know](#simple-words-you-need-to-know)
-3. [What we are building](#what-we-are-building)
-4. [Recommended design](#recommended-design)
-5. [Part 1 - First login and admin basics](#part-1---first-login-and-admin-basics)
-6. [Part 2 - Create a normal human user in the UI](#part-2---create-a-normal-human-user-in-the-ui)
-7. [Part 3 - Create policies](#part-3---create-policies)
-8. [Part 4 - Create the secrets engine in the UI](#part-4---create-the-secrets-engine-in-the-ui)
-9. [Part 5 - Store app secrets in the UI](#part-5---store-app-secrets-in-the-ui)
-10. [Part 6 - Create an AppRole with the Web UI Browser CLI](#part-6---create-an-approle-with-the-web-ui-browser-cli)
-11. [Part 7 - Test machine access](#part-7---test-machine-access)
-12. [Part 8 - Install OpenBao Agent on the app server](#part-8---install-openbao-agent-on-the-app-server)
-13. [Part 9 - Configure Agent to render a generic `.env`](#part-9---configure-agent-to-render-a-generic-env)
-14. [Part 10 - Configure systemd](#part-10---configure-systemd)
-15. [Part 11 - Day-to-day secret management](#part-11---day-to-day-secret-management)
-16. [Part 12 - Add another app](#part-12---add-another-app)
-17. [Troubleshooting](#troubleshooting)
-18. [Security best practices](#security-best-practices)
-19. [Quick reference](#quick-reference)
+| # | Section | Purpose |
+|---:|---|---|
+| 1 | [🧱 What OpenBao is](#what-openbao-is) | Understand why OpenBao is useful |
+| 2 | [🧠 Simple words you need to know](#simple-words-you-need-to-know) | Learn the basic terms |
+| 3 | [🏗️ What we are building](#what-we-are-building) | Understand the full flow |
+| 4 | [✅ Recommended design](#recommended-design) | Follow a clean app/user structure |
+| 5 | [🚪 Part 1 - First login and admin basics](#part-1---first-login-and-admin-basics) | Login using the initial admin/root token |
+| 6 | [👤 Part 2 - Create a normal human user in the UI](#part-2---create-a-normal-human-user-in-the-ui) | Create userpass-based human access |
+| 7 | [📜 Part 3 - Create policies](#part-3---create-policies) | Create human and machine policies |
+| 8 | [🗄️ Part 4 - Create the secrets engine in the UI](#part-4---create-the-secrets-engine-in-the-ui) | Enable KV v2 at `apps/` |
+| 9 | [🔑 Part 5 - Store app secrets in the UI](#part-5---store-app-secrets-in-the-ui) | Store app environment variables |
+| 10 | [🤖 Part 6 - Create an AppRole with the Web UI Browser CLI](#part-6---create-an-approle-with-the-web-ui-browser-cli) | Create machine identity |
+| 11 | [🧪 Part 7 - Test machine access](#part-7---test-machine-access) | Verify AppRole access |
+| 12 | [📦 Part 8 - Install OpenBao Agent on the app server](#part-8---install-openbao-agent-on-the-app-server) | Install the `bao` binary and folders |
+| 13 | [📝 Part 9 - Configure Agent to render a generic `.env`](#part-9---configure-agent-to-render-a-generic-env) | Render OpenBao secrets into `.env` |
+| 14 | [⚙️ Part 10 - Configure systemd](#part-10---configure-systemd) | Run Agent as a restart-safe service |
+| 15 | [🔁 Part 11 - Day-to-day secret management](#part-11---day-to-day-secret-management) | Manage secrets from the UI |
+| 16 | [➕ Part 12 - Add another app](#part-12---add-another-app) | Repeat the process safely for new apps |
+| 17 | [🧯 Troubleshooting](#troubleshooting) | Fix common issues |
+| 18 | [🛡️ Security best practices](#security-best-practices) | Keep access safer |
+| 19 | [⚡ Quick reference](#quick-reference) | Copy useful commands quickly |
 
 ---
 
-## What OpenBao is
+## 🧭 Quick setup map
+
+| Phase | Main action | Done in | Important output |
+|---|---|---|---|
+| 1 | Create human user | OpenBao UI | Normal user can log in |
+| 2 | Create secret engine | OpenBao UI | `apps/` KV v2 mount |
+| 3 | Store app secrets | OpenBao UI | `apps/flask-keycloak` |
+| 4 | Create app policy | OpenBao UI | `flask-app-read` |
+| 5 | Create AppRole | Browser CLI | `role_id` and `secret_id` |
+| 6 | Configure Agent | App server | `/opt/flask-app/.env` rendered |
+| 7 | Configure systemd | App server | Agent survives restart |
+| 8 | Add new apps | UI + server | Separate secret path, template, config, and service |
+
+> ✅ **Main goal:** after setup, app secrets should be managed from the OpenBao UI, and the app server should receive them automatically through OpenBao Agent.
+
+
+## 🧱 What OpenBao is
 
 OpenBao is a central place to store secrets.
 
@@ -48,17 +66,30 @@ Instead of keeping sensitive values in many local `.env` files on many servers, 
 
 Examples of secrets:
 
-- database passwords
-- API keys
-- client secrets
-- Flask `SECRET_KEY`
-- `CLIENT_ID`
-- `CLIENT_SECRET`
-- URLs, tokens, and app env values
+| Secret type | Example |
+|---|---|
+| Database password | `DB_PASSWORD=StrongPassword` |
+| API key | `API_KEY=abc123` |
+| Client secret | `CLIENT_SECRET=your-client-secret` |
+| Flask secret | `SECRET_KEY=your_very_secret_random_string_here` |
+| App config | `CLIENT_ID`, `KEYCLOAK_URL`, `REALM_NAME` |
+| Service token | Tokens used by apps or integrations |
 
 ---
 
-## Simple words you need to know
+## 🧠 Simple words you need to know
+
+| Term | Simple meaning | Example |
+|---|---|---|
+| Secret | Sensitive value | `CLIENT_SECRET=abc123` |
+| Secret path | Where the secret is stored | `apps/flask-keycloak` |
+| Auth method | Login method | Userpass or AppRole |
+| Policy | Permission rule | Read only `apps/data/flask-keycloak` |
+| Token | Temporary access badge | OpenBao login token |
+| AppRole | Machine/app identity | `flask-keycloak-role` |
+| OpenBao Agent | Server-side helper | Renders `/opt/flask-app/.env` |
+
+---
 
 ### Secret
 A sensitive value.
@@ -118,7 +149,7 @@ A helper process on the app server that:
 
 ---
 
-## What we are building
+## 🏗️ What we are building
 
 For one Flask app, we want this:
 
@@ -148,22 +179,32 @@ policy attached to that user
 OpenBao UI access
 ```
 
+### 🧩 Component responsibility table
+
+| Component | Responsibility |
+|---|---|
+| OpenBao UI | Create users, policies, secrets, and manage day-to-day secret values |
+| KV v2 `apps/` engine | Stores app secrets under paths like `apps/flask-keycloak` |
+| Policy | Controls what a human user or app can access |
+| AppRole | Allows the app/server to authenticate without a human password |
+| OpenBao Agent | Logs in using AppRole, renews token, reads secrets, and renders `.env` |
+| systemd | Keeps OpenBao Agent running and restart-safe |
+
 ---
 
-## Recommended design
+## ✅ Recommended design
 
 Use this rule:
 
-### For people
-- one human user per person
-- use **Username & Password**
-- assign only the access they need
-
-### For apps
-- one app = one secret path
-- one app = one policy
-- one app = one AppRole
-- one app server = one Agent config
+| Access type | Recommended design | Why |
+|---|---|---|
+| People | One human user per person | Easier audit and access control |
+| People | Use **Username & Password** | Simple UI login for humans |
+| People | Assign only needed policies | Reduces accidental access |
+| Apps | One app = one secret path | Keeps secrets isolated |
+| Apps | One app = one policy | Simple permission management |
+| Apps | One app = one AppRole | Easy rotation and separation |
+| Apps | One app server = one Agent config | Clear troubleshooting and ownership |
 
 ### Example
 For a Flask app:
@@ -178,11 +219,22 @@ For another app:
 - policy: `billing-app-read`
 - AppRole: `billing-api-role`
 
+### 🏷️ Naming standard
+
+| Object | Naming pattern | Example |
+|---|---|---|
+| Secret path | `apps/<app-name>` | `apps/flask-keycloak` |
+| Read policy | `<app-name>-read` | `flask-app-read` |
+| AppRole | `<app-name>-role` | `flask-keycloak-role` |
+| Template | `<app-name>.env.ctmpl` | `flask.env.ctmpl` |
+| Same-server service | `openbao-agent-<app-name>.service` | `openbao-agent-billing-api.service` |
+| Same-server runtime directory | `openbao-agent-<app-name>` | `openbao-agent-billing-api` |
+
 ---
 
-# Part 1 - First login and admin basics
+# 🚪 Part 1 - First login and admin basics
 
-## Step 1. Log in to OpenBao
+## 🔑 Step 1. Log in to OpenBao
 
 Use the initial admin/root token only for first setup.
 
@@ -206,11 +258,11 @@ Use the initial admin/root token only for first setup.
 
 ---
 
-# Part 2 - Create a normal human user in the UI
+# 👤 Part 2 - Create a normal human user in the UI
 
 Use **Username & Password** for human access.
 
-## Step 2. Enable Username & Password auth
+## 👤 Step 2. Enable Username & Password auth
 
 ### UI steps
 1. Go to **Access**
@@ -230,7 +282,7 @@ Use **Username & Password** for human access.
   <b>Enable Username & Password authentication method</b>
 </p>
 
-## Step 3. Create a policy for human secret management
+## 📜 Step 3. Create a policy for human secret management
 
 We will create a human policy named:
 
@@ -269,7 +321,7 @@ path "apps/metadata/*" {
   <b>Create apps-manager policy</b>
 </p>
 
-## Step 4. Create the human user
+## 👥 Step 4. Create the human user
 
 Example username:
 
@@ -313,7 +365,7 @@ apps-manager
   <b>Add apps-manager policy to the generated token policies</b>
 </p>
 
-## Step 5. Test the human user
+## 🧪 Step 5. Test the human user
 
 ### UI steps
 1. Log out
@@ -324,7 +376,7 @@ If login works, your normal human access is ready.
 
 ---
 
-# Part 3 - Create policies
+# 📜 Part 3 - Create policies
 
 Policies decide what users and apps can do.
 
@@ -387,7 +439,7 @@ path "apps/metadata/flask-keycloak" {
 
 ---
 
-# Part 4 - Create the secrets engine in the UI
+# 🗄️ Part 4 - Create the secrets engine in the UI
 
 We will create a KV v2 secrets engine named:
 
@@ -395,7 +447,7 @@ We will create a KV v2 secrets engine named:
 apps
 ```
 
-## Step 6. Enable the secrets engine
+## 🗄️ Step 6. Enable the secrets engine
 
 ### UI steps
 1. Go to **Secrets engines**
@@ -422,7 +474,7 @@ apps
 
 ---
 
-# Part 5 - Store app secrets in the UI
+# 🔑 Part 5 - Store app secrets in the UI
 
 We will store the Flask app values at:
 
@@ -430,7 +482,7 @@ We will store the Flask app values at:
 apps/flask-keycloak
 ```
 
-## Step 7. Create the app secret
+## 🔐 Step 7. Create the app secret
 
 ### UI steps
 1. Go to **Secrets engines**
@@ -471,11 +523,11 @@ flask-keycloak
 
 ---
 
-# Part 6 - Create an AppRole with the Web UI Browser CLI
+# 🤖 Part 6 - Create an AppRole with the Web UI Browser CLI
 
 This is the only part where we will use CLI.
 
-## Step 8. Enable AppRole in the UI
+## 🤖 Step 8. Enable AppRole in the UI
 
 ### UI steps
 1. Go to **Access**
@@ -500,7 +552,7 @@ approle
   <b>Enable AppRole authentication method</b>
 </p>
 
-## Step 9. Open the Browser CLI
+## 💻 Step 9. Open the Browser CLI
 
 In the Web UI, open the built-in CLI panel.
 
@@ -514,7 +566,7 @@ In the Web UI, open the built-in CLI panel.
   <b>OpenBao Browser CLI panel</b>
 </p>
 
-## Step 10. Create the AppRole
+## 🧾 Step 10. Create the AppRole
 
 Use this command in the Web UI Browser CLI:
 
@@ -522,13 +574,13 @@ Use this command in the Web UI Browser CLI:
 bao write auth/approle/role/flask-keycloak-role token_policies="flask-app-read"
 ```
 
-## Step 11. Read the `role_id`
+## 🆔 Step 11. Read the `role_id`
 
 ```bash
 bao read auth/approle/role/flask-keycloak-role/role-id
 ```
 
-## Step 12. Generate the `secret_id`
+## 🔑 Step 12. Generate the `secret_id`
 
 ```bash
 bao write -f auth/approle/role/flask-keycloak-role/secret-id
@@ -560,13 +612,13 @@ bao write -f auth/approle/role/flask-keycloak-role/secret-id
   <b>Generate AppRole secret_id</b>
 </p>
 
-## Step 13. Optional: list AppRoles
+## 📋 Step 13. Optional: list AppRoles
 
 ```bash
 bao list auth/approle/role
 ```
 
-## Step 14. Optional: inspect one AppRole
+## 🔎 Step 14. Optional: inspect one AppRole
 
 ```bash
 bao read auth/approle/role/flask-keycloak-role
@@ -574,9 +626,9 @@ bao read auth/approle/role/flask-keycloak-role
 
 ---
 
-# Part 7 - Test machine access
+# 🧪 Part 7 - Test machine access
 
-## Step 15. Log in as the app
+## 🤖 Step 15. Log in as the app
 
 Use the Browser CLI or a normal terminal:
 
@@ -586,7 +638,7 @@ bao write auth/approle/login   role_id="YOUR_ROLE_ID"   secret_id="YOUR_SECRET_I
 
 This returns a `client_token`.
 
-## Step 16. Test reading the secret
+## 🧪 Step 16. Test reading the secret
 **(After installing OpenBao Agent in a linux machine part 8 Step 17)**
 
 With a full terminal CLI: 
@@ -612,9 +664,9 @@ If the read works, the machine identity is working correctly.
 
 ---
 
-# Part 8 - Install OpenBao Agent on the app server
+# 📦 Part 8 - Install OpenBao Agent on the app server
 
-## Step 17. Install the `bao` binary
+## 📥 Step 17. Install the `bao` binary
 
 On the app server:
 
@@ -638,7 +690,7 @@ bao -h
 bao version
 ```
 
-## Step 18. Create Agent directories
+## 📁 Step 18. Create Agent directories
 
 ```bash
 sudo mkdir -p /etc/openbao-agent.d/approle
@@ -647,11 +699,13 @@ sudo chmod 700 /etc/openbao-agent.d
 sudo chmod 700 /etc/openbao-agent.d/approle
 ```
 
+> ⚠️ **Restart-safe note**
+>
 > Do not manually create `/run/openbao-agent` for permanent use.
 > `/run` is temporary and is cleared after every reboot.
 > systemd will create `/run/openbao-agent` automatically using `RuntimeDirectory=openbao-agent` in the service file.
 
-## Step 19. Save AppRole credentials in files
+## 🗝️ Step 19. Save AppRole credentials in files
 
 Create:
 
@@ -678,9 +732,9 @@ sudo chmod 600 /etc/openbao-agent.d/approle/secret_id
 
 ---
 
-# Part 9 - Configure Agent to render a generic `.env`
+# 📝 Part 9 - Configure Agent to render a generic `.env`
 
-## Step 20. Create the generic template
+## 📝 Step 20. Create the generic template
 
 Create:
 
@@ -696,7 +750,17 @@ EOF
 sudo chmod 600 /etc/openbao-agent.d/flask.env.ctmpl
 ```
 
-## Step 21. Create the Agent config
+### 🔍 Template value that must match
+
+| Template line | Must match |
+|---|---|
+| `{{- with secret "apps/flask-keycloak" -}}` | The OpenBao secret path created in Part 5 |
+| `.Data.data` | KV v2 data location |
+| `{{ $k }}={{ $v }}` | Generic key-value output for `.env` |
+
+> ✅ For a new app, this template file must point to the new app's secret path.
+
+## ⚙️ Step 21. Create the Agent config
 
 Create:
 
@@ -748,11 +812,22 @@ EOF
 sudo chmod 600 /etc/openbao-agent.d/agent.hcl
 ```
 
+### 🧩 Agent config values that must match
+
+| Config field | Current value | Must match |
+|---|---|---|
+| `vault.address` | `http://10.9.0.70:8200` | OpenBao/HAProxy address |
+| `role_id_file_path` | `/etc/openbao-agent.d/approle/role_id` | AppRole `role_id` file |
+| `secret_id_file_path` | `/etc/openbao-agent.d/approle/secret_id` | AppRole `secret_id` file |
+| token sink path | `/run/openbao-agent/token` | systemd `RuntimeDirectory` |
+| `template.source` | `/etc/openbao-agent.d/flask.env.ctmpl` | Template file |
+| `template.destination` | `/opt/flask-app/.env` | App `.env` location |
+
 ---
 
-# Part 10 - Configure systemd
+# ⚙️ Part 10 - Configure systemd
 
-## Step 22. Create `openbao-agent.service`
+## 🛠️ Step 22. Create `openbao-agent.service`
 
 Create:
 
@@ -777,8 +852,20 @@ WantedBy=multi-user.target
 EOF
 ```
 
+### 🧠 Important systemd lines
 
-## Step 23. Reload and start services
+| Line | Purpose |
+|---|---|
+| `Environment=HOME=/root` | Prevents `$HOME is not defined` errors |
+| `RuntimeDirectory=openbao-agent` | Creates `/run/openbao-agent` automatically |
+| `RuntimeDirectoryMode=0750` | Sets safer runtime directory permissions |
+| `Restart=always` | Restarts Agent if it exits |
+| `RestartSec=5` | Waits 5 seconds before restart |
+| `WantedBy=multi-user.target` | Allows service to start automatically during boot |
+
+> ✅ This is the part that keeps the Agent working after machine restarts.
+
+## 🚀 Step 23. Reload and start services
 
 ```bash
 sudo systemctl daemon-reload
@@ -788,7 +875,7 @@ sudo systemctl enable openbao-agent.service
 sudo systemctl start openbao-agent.service
 ```
 
-## Step 24. Verify
+## ✅ Step 24. Verify
 
 Check Agent:
 
@@ -805,7 +892,7 @@ sudo ls -l /opt/flask-app/.env
 sudo cat /opt/flask-app/.env
 ```
 
-## Step 25. Test after reboot
+## 🔁 Step 25. Test after reboot
 
 Because `/run` is temporary, always verify that OpenBao Agent works after a reboot.
 
@@ -838,7 +925,7 @@ If `/run/openbao-agent` exists after service start, the restart-safe configurati
 
 ---
 
-# Part 11 - Day-to-day secret management
+# 🔁 Part 11 - Day-to-day secret management
 
 Once setup is complete, your daily work should be almost entirely in the **OpenBao UI**.
 
@@ -873,7 +960,11 @@ OpenBao Agent owns that file now.
 
 ---
 
-# Part 12 - Add another app
+# ➕ Part 12 - Add another app
+
+> 🎯 **Goal:** add a new application without breaking the existing Flask app.
+>
+> The new app must get its own secret path, policy, AppRole, template, Agent config, and systemd service when it runs on the same server.
 
 If you have another app, repeat the same design.
 
@@ -902,6 +993,11 @@ Use this checklist before adding any new application.
 ---
 
 ## 12.2 Important decision: same server or different server?
+
+| Scenario | Can reuse file names? | Recommended approach |
+|---|---:|---|
+| New app on a different server | ✅ Yes | Reuse simple names like `agent.hcl` and `openbao-agent.service`, but change values inside |
+| Multiple apps on the same server | ❌ No | Use separate directories, templates, runtime directories, and service names |
 
 ### Case A: New app is on a different server
 
@@ -1342,19 +1438,21 @@ rendered "/etc/openbao-agent.d/billing-api/billing-api.env.ctmpl" => "/opt/billi
 
 Before calling the setup complete, confirm every item below.
 
-- [ ] Secret exists in OpenBao UI under the correct path
-- [ ] Policy points to the correct `apps/data/APP_NAME` path
-- [ ] AppRole uses the correct policy
-- [ ] New `role_id` is saved on the app server
-- [ ] New `secret_id` is saved on the app server
-- [ ] `.env.ctmpl` uses the correct secret path
-- [ ] `agent.hcl` points to the correct template file
-- [ ] `agent.hcl` points to the correct destination `.env`
-- [ ] systemd service points to the correct `agent.hcl`
-- [ ] `RuntimeDirectory` is unique for this Agent service
-- [ ] service is enabled
-- [ ] service works after reboot
-- [ ] app reads the rendered `.env` file correctly
+| Check | Status |
+|---|---|
+| Secret exists in OpenBao UI under the correct path | ☐ |
+| Policy points to the correct `apps/data/APP_NAME` path | ☐ |
+| AppRole uses the correct policy | ☐ |
+| New `role_id` is saved on the app server | ☐ |
+| New `secret_id` is saved on the app server | ☐ |
+| `.env.ctmpl` uses the correct secret path | ☐ |
+| `agent.hcl` points to the correct template file | ☐ |
+| `agent.hcl` points to the correct destination `.env` | ☐ |
+| systemd service points to the correct `agent.hcl` | ☐ |
+| `RuntimeDirectory` is unique for this Agent service | ☐ |
+| service is enabled | ☐ |
+| service works after reboot | ☐ |
+| app reads the rendered `.env` file correctly | ☐ |
 
 ## Important rule
 
@@ -1368,7 +1466,7 @@ Use:
 
 ---
 
-## Troubleshooting
+## 🧯 Troubleshooting
 
 ### 1. Agent worked before reboot but failed after reboot
 
@@ -1486,7 +1584,7 @@ sudo journalctl -u openbao-agent-billing-api.service -n 50 --no-pager
 
 ---
 
-## Security best practices
+## 🛡️ Security best practices
 
 ### Do not use the root token for daily work
 Create human users for UI usage.
@@ -1510,7 +1608,16 @@ If you showed it in chat, logs, or screenshots, generate a new one.
 
 ---
 
-## Quick reference
+## ⚡ Quick reference
+
+| Task | Command area |
+|---|---|
+| Create human user | Userpass auth |
+| Create AppRole | AppRole auth |
+| Get `role_id` | AppRole role ID endpoint |
+| Generate `secret_id` | AppRole secret ID endpoint |
+| Login as app | AppRole login |
+| Read app secret | KV v2 secret read |
 
 ### Create human user (CLI example)
 
@@ -1553,16 +1660,19 @@ bao kv get -mount=apps flask-keycloak
 
 ---
 
-## Final recommendation
+## 🎯 Final recommendation
 
 For production and long-term maintainability, use this standard:
 
-- **UI** for human access and secret management
-- **Username & Password** for people
-- **Policies** for permissions
-- **AppRole** for apps
-- **Web UI Browser CLI** only for AppRole role creation and credentials
-- **OpenBao Agent** for secret delivery to apps
-- **generic template** for automatic new key support
+| Area | Standard |
+|---|---|
+| Human access | Use the **OpenBao UI** |
+| Human login | Use **Username & Password** |
+| Authorization | Use **Policies** |
+| App/machine login | Use **AppRole** |
+| AppRole setup | Use the **Web UI Browser CLI** only where needed |
+| Secret delivery | Use **OpenBao Agent** |
+| `.env` generation | Use the **generic template** |
+| Multiple apps on same server | Use **separate Agent configs and services** |
 
 That gives you centralized secret management with minimal application changes and a beginner-friendly operating model.
