@@ -877,25 +877,484 @@ OpenBao Agent owns that file now.
 
 If you have another app, repeat the same design.
 
+The most important thing is: **do not only create a new AppRole**.  
+For every new app, you must also change the secret path, policy, template file, Agent config, AppRole credential files, and sometimes the systemd service name.
+
+---
+
+## 12.1 What changes for every new app
+
+Use this checklist before adding any new application.
+
+| Item | Current Flask app example | New app example |
+|---|---|---|
+| Secret path in OpenBao | `apps/flask-keycloak` | `apps/billing-api` |
+| Policy name | `flask-app-read` | `billing-app-read` |
+| AppRole name | `flask-keycloak-role` | `billing-api-role` |
+| Template file | `/etc/openbao-agent.d/flask.env.ctmpl` | `/etc/openbao-agent.d/billing-api.env.ctmpl` |
+| Template secret path | `apps/flask-keycloak` | `apps/billing-api` |
+| Rendered `.env` destination | `/opt/flask-app/.env` | `/opt/billing-api/.env` |
+| AppRole credential directory | `/etc/openbao-agent.d/approle/` | `/etc/openbao-agent.d/billing-api/approle/` |
+| Agent config | `/etc/openbao-agent.d/agent.hcl` | `/etc/openbao-agent.d/billing-api/agent.hcl` |
+| Runtime directory | `/run/openbao-agent` | `/run/openbao-agent-billing-api` |
+| systemd service | `openbao-agent.service` | `openbao-agent-billing-api.service` |
+
+---
+
+## 12.2 Important decision: same server or different server?
+
+### Case A: New app is on a different server
+
+This is the simplest case.
+
+You can reuse the same file names on the new server:
+
+```text
+/etc/openbao-agent.d/agent.hcl
+/etc/openbao-agent.d/flask.env.ctmpl
+/etc/systemd/system/openbao-agent.service
+```
+
+But you must change the values inside them:
+
+- secret path
+- template content
+- `.env` destination path
+- AppRole `role_id`
+- AppRole `secret_id`
+- policy name
+- AppRole name
+
+### Case B: Multiple apps are on the same server
+
+Use separate directories and separate services.
+
 Example:
 
-## Billing app
-- secret path: `apps/billing-api`
-- policy: `billing-app-read`
-- AppRole: `billing-api-role`
+```text
+/etc/openbao-agent.d/flask-keycloak/
+/etc/openbao-agent.d/billing-api/
+```
 
-### UI tasks
-- create new secret path in `apps/`
-- create the new read policy
+And separate services:
 
-### Browser CLI tasks
-- create the AppRole
-- get `role_id`
-- generate `secret_id`
+```text
+openbao-agent-flask-keycloak.service
+openbao-agent-billing-api.service
+```
 
-### Server tasks
-- create Agent config and template for that app
-- point Agent output to that app’s `.env`
+This avoids one app overwriting another app's `.env` file.
+
+---
+
+## 12.3 Example: add a new Billing app
+
+For this example:
+
+| Item | Value |
+|---|---|
+| App name | Billing API |
+| OpenBao secret path | `apps/billing-api` |
+| Policy name | `billing-app-read` |
+| AppRole name | `billing-api-role` |
+| App server `.env` file | `/opt/billing-api/.env` |
+| Template file | `/etc/openbao-agent.d/billing-api/billing-api.env.ctmpl` |
+| Agent config | `/etc/openbao-agent.d/billing-api/agent.hcl` |
+| systemd service | `openbao-agent-billing-api.service` |
+
+---
+
+## 12.4 Create the new app secret in the UI
+
+### UI steps
+
+1. Go to **Secrets engines**
+2. Open `apps/`
+3. Click **Create secret**
+4. Use path:
+
+```text
+billing-api
+```
+
+5. Add the app's environment variables.
+
+Example:
+
+```json
+{
+  "APP_ENV": "production",
+  "DATABASE_URL": "mysql://user:password@db-server:3306/billing",
+  "API_KEY": "your-api-key",
+  "SECRET_KEY": "your-secret-key"
+}
+```
+
+6. Save.
+
+The full OpenBao path becomes:
+
+```text
+apps/billing-api
+```
+
+---
+
+## 12.5 Create a new read-only policy for the app
+
+Policy name:
+
+```text
+billing-app-read
+```
+
+Policy content:
+
+```hcl
+path "apps/data/billing-api" {
+  capabilities = ["read"]
+}
+
+path "apps/metadata/billing-api" {
+  capabilities = ["read"]
+}
+```
+
+### UI steps
+
+1. Go to **Policies**
+2. Click **Create policy**
+3. Name it:
+
+```text
+billing-app-read
+```
+
+4. Paste the policy
+5. Save
+
+---
+
+## 12.6 Create the new AppRole
+
+Use the OpenBao Web UI Browser CLI.
+
+Create the AppRole:
+
+```bash
+bao write auth/approle/role/billing-api-role token_policies="billing-app-read"
+```
+
+Read the `role_id`:
+
+```bash
+bao read auth/approle/role/billing-api-role/role-id
+```
+
+Generate the `secret_id`:
+
+```bash
+bao write -f auth/approle/role/billing-api-role/secret-id
+```
+
+Save both values securely. You will need them on the app server.
+
+---
+
+## 12.7 Create new Agent directories on the app server
+
+For a same-server multi-app setup, create a separate directory for this app:
+
+```bash
+sudo mkdir -p /etc/openbao-agent.d/billing-api/approle
+
+sudo chmod 700 /etc/openbao-agent.d/billing-api
+sudo chmod 700 /etc/openbao-agent.d/billing-api/approle
+```
+
+---
+
+## 12.8 Save the new AppRole credentials
+
+Create the `role_id` file:
+
+```bash
+sudo tee /etc/openbao-agent.d/billing-api/approle/role_id >/dev/null <<'EOF'
+YOUR_BILLING_API_ROLE_ID_HERE
+EOF
+```
+
+Create the `secret_id` file:
+
+```bash
+sudo tee /etc/openbao-agent.d/billing-api/approle/secret_id >/dev/null <<'EOF'
+YOUR_BILLING_API_SECRET_ID_HERE
+EOF
+```
+
+Set safe permissions:
+
+```bash
+sudo chmod 600 /etc/openbao-agent.d/billing-api/approle/role_id
+sudo chmod 600 /etc/openbao-agent.d/billing-api/approle/secret_id
+```
+
+---
+
+## 12.9 Create the new `.env.ctmpl` template
+
+This is the part that must be changed for every new app.
+
+For the Flask app, you used:
+
+```text
+apps/flask-keycloak
+```
+
+For the Billing app, the template must use:
+
+```text
+apps/billing-api
+```
+
+Create the Billing app template:
+
+```bash
+sudo tee /etc/openbao-agent.d/billing-api/billing-api.env.ctmpl >/dev/null <<'EOF'
+{{- with secret "apps/billing-api" -}}
+{{- range $k, $v := .Data.data }}
+{{ $k }}={{ $v }}
+{{- end }}
+{{- end }}
+EOF
+
+sudo chmod 600 /etc/openbao-agent.d/billing-api/billing-api.env.ctmpl
+```
+
+### Very important
+
+This line must match the OpenBao secret path:
+
+```text
+{{- with secret "apps/billing-api" -}}
+```
+
+If this still says the old app path, for example:
+
+```text
+{{- with secret "apps/flask-keycloak" -}}
+```
+
+then the new app will receive the wrong secrets or the template may fail.
+
+---
+
+## 12.10 Create the new Agent config
+
+Create:
+
+```bash
+sudo tee /etc/openbao-agent.d/billing-api/agent.hcl >/dev/null <<'EOF'
+pid_file = "/run/openbao-agent-billing-api/agent.pid"
+
+vault {
+  address = "http://10.9.0.70:8200"
+}
+
+auto_auth {
+  method {
+    type       = "approle"
+    mount_path = "auth/approle"
+
+    config = {
+      role_id_file_path                   = "/etc/openbao-agent.d/billing-api/approle/role_id"
+      secret_id_file_path                 = "/etc/openbao-agent.d/billing-api/approle/secret_id"
+      remove_secret_id_file_after_reading = false
+    }
+  }
+
+  sink {
+    type = "file"
+    config = {
+      path = "/run/openbao-agent-billing-api/token"
+    }
+  }
+}
+
+template_config {
+  exit_on_retry_failure         = true
+  static_secret_render_interval = "1m"
+}
+
+template {
+  source               = "/etc/openbao-agent.d/billing-api/billing-api.env.ctmpl"
+  destination          = "/opt/billing-api/.env"
+  create_dest_dirs     = true
+  error_on_missing_key = true
+}
+EOF
+
+sudo chmod 600 /etc/openbao-agent.d/billing-api/agent.hcl
+```
+
+### Things that changed from the first app
+
+| Field | What changed |
+|---|---|
+| `pid_file` | changed to `/run/openbao-agent-billing-api/agent.pid` |
+| `role_id_file_path` | changed to Billing app's `role_id` path |
+| `secret_id_file_path` | changed to Billing app's `secret_id` path |
+| token sink path | changed to `/run/openbao-agent-billing-api/token` |
+| template source | changed to Billing app's `.env.ctmpl` file |
+| template destination | changed to Billing app's `.env` file |
+
+---
+
+## 12.11 Create the new systemd service
+
+Create a separate service for the new app:
+
+```bash
+sudo tee /etc/systemd/system/openbao-agent-billing-api.service >/dev/null <<'EOF'
+[Unit]
+Description=OpenBao Agent - Billing API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+RuntimeDirectory=openbao-agent-billing-api
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/bin/bao agent -config=/etc/openbao-agent.d/billing-api/agent.hcl
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+### Why `RuntimeDirectory` must be different
+
+For the first app, we used:
+
+```ini
+RuntimeDirectory=openbao-agent
+```
+
+For the Billing app, we use:
+
+```ini
+RuntimeDirectory=openbao-agent-billing-api
+```
+
+This creates:
+
+```text
+/run/openbao-agent-billing-api
+```
+
+after every restart.
+
+This keeps the token and PID file separate from the first app.
+
+---
+
+## 12.12 Start and verify the new Agent
+
+Reload systemd:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+Enable the service:
+
+```bash
+sudo systemctl enable openbao-agent-billing-api.service
+```
+
+Start the service:
+
+```bash
+sudo systemctl start openbao-agent-billing-api.service
+```
+
+Check status:
+
+```bash
+sudo systemctl status openbao-agent-billing-api.service --no-pager
+```
+
+Check logs:
+
+```bash
+sudo journalctl -u openbao-agent-billing-api.service -n 50 --no-pager
+```
+
+Check the rendered `.env` file:
+
+```bash
+sudo ls -l /opt/billing-api/.env
+sudo cat /opt/billing-api/.env
+```
+
+Expected logs should show:
+
+```text
+authentication successful
+token written: path=/run/openbao-agent-billing-api/token
+rendered "/etc/openbao-agent.d/billing-api/billing-api.env.ctmpl" => "/opt/billing-api/.env"
+```
+
+---
+
+## 12.13 Test the new app after reboot
+
+Reboot the server:
+
+```bash
+sudo reboot
+```
+
+After the server comes back:
+
+```bash
+sudo systemctl status openbao-agent-billing-api.service --no-pager
+sudo journalctl -b -u openbao-agent-billing-api.service -n 50 --no-pager
+sudo ls -ld /run/openbao-agent-billing-api
+sudo ls -l /run/openbao-agent-billing-api
+```
+
+Expected result:
+
+```text
+Active: active (running)
+authentication successful
+token written: path=/run/openbao-agent-billing-api/token
+rendered "/etc/openbao-agent.d/billing-api/billing-api.env.ctmpl" => "/opt/billing-api/.env"
+```
+
+---
+
+## 12.14 New app checklist
+
+Before calling the setup complete, confirm every item below.
+
+- [ ] Secret exists in OpenBao UI under the correct path
+- [ ] Policy points to the correct `apps/data/APP_NAME` path
+- [ ] AppRole uses the correct policy
+- [ ] New `role_id` is saved on the app server
+- [ ] New `secret_id` is saved on the app server
+- [ ] `.env.ctmpl` uses the correct secret path
+- [ ] `agent.hcl` points to the correct template file
+- [ ] `agent.hcl` points to the correct destination `.env`
+- [ ] systemd service points to the correct `agent.hcl`
+- [ ] `RuntimeDirectory` is unique for this Agent service
+- [ ] service is enabled
+- [ ] service works after reboot
+- [ ] app reads the rendered `.env` file correctly
 
 ## Important rule
 
@@ -904,6 +1363,8 @@ Use:
 - one app = one policy
 - one app = one AppRole
 - one app = one secret path
+- one app on the same server = one separate Agent config
+- one app on the same server = one separate systemd service
 
 ---
 
@@ -976,6 +1437,52 @@ Check:
 
 ### 8. Flask debug mode does not change
 If your code hardcodes `debug=True`, changing `DEBUG` in OpenBao will not change runtime behavior until code is fixed.
+
+
+### 9. New app renders the old app secrets
+
+This usually means the new app's `.env.ctmpl` still points to the old secret path.
+
+Check the template:
+
+```bash
+sudo cat /etc/openbao-agent.d/billing-api/billing-api.env.ctmpl
+```
+
+For the Billing app, it must contain:
+
+```text
+{{- with secret "apps/billing-api" -}}
+```
+
+It should not contain the old app path:
+
+```text
+{{- with secret "apps/flask-keycloak" -}}
+```
+
+Also check the Agent config:
+
+```bash
+sudo cat /etc/openbao-agent.d/billing-api/agent.hcl
+```
+
+Confirm these values are correct:
+
+- `role_id_file_path`
+- `secret_id_file_path`
+- `source`
+- `destination`
+- token sink path under `/run`
+- `pid_file`
+
+Restart the correct service:
+
+```bash
+sudo systemctl restart openbao-agent-billing-api.service
+sudo journalctl -u openbao-agent-billing-api.service -n 50 --no-pager
+```
+
 
 ---
 
