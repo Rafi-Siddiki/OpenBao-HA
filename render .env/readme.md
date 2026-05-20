@@ -642,11 +642,14 @@ bao version
 
 ```bash
 sudo mkdir -p /etc/openbao-agent.d/approle
-sudo mkdir -p /run/openbao-agent
 
 sudo chmod 700 /etc/openbao-agent.d
 sudo chmod 700 /etc/openbao-agent.d/approle
 ```
+
+> Do not manually create `/run/openbao-agent` for permanent use.
+> `/run` is temporary and is cleared after every reboot.
+> systemd will create `/run/openbao-agent` automatically using `RuntimeDirectory=openbao-agent` in the service file.
 
 ## Step 19. Save AppRole credentials in files
 
@@ -731,8 +734,12 @@ template_config {
 }
 
 template {
-  source               = "/etc/openbao-agent.d/flask.env.ctmpl" -------------> Change according to code base
-  destination          = "/opt/flask-app/.env" -------------------------> .env file location in the code base
+  # Change this template path according to your application
+  source               = "/etc/openbao-agent.d/flask.env.ctmpl"
+
+  # Change this destination path to your application's .env file location
+  destination          = "/opt/flask-app/.env"
+
   create_dest_dirs     = true
   error_on_missing_key = true
 }
@@ -759,6 +766,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=HOME=/root
+RuntimeDirectory=openbao-agent
+RuntimeDirectoryMode=0750
 ExecStart=/usr/local/bin/bao agent -config=/etc/openbao-agent.d/agent.hcl
 Restart=always
 RestartSec=5
@@ -795,6 +804,36 @@ Check rendered `.env`:
 sudo ls -l /opt/flask-app/.env
 sudo cat /opt/flask-app/.env
 ```
+
+## Step 25. Test after reboot
+
+Because `/run` is temporary, always verify that OpenBao Agent works after a reboot.
+
+Reboot the app server:
+
+```bash
+sudo reboot
+```
+
+After the server comes back, check:
+
+```bash
+sudo systemctl status openbao-agent.service --no-pager
+sudo journalctl -b -u openbao-agent.service -n 50 --no-pager
+sudo ls -ld /run/openbao-agent
+sudo ls -l /run/openbao-agent
+```
+
+Expected result:
+
+```text
+Active: active (running)
+authentication successful
+token written: path=/run/openbao-agent/token
+rendered "/etc/openbao-agent.d/flask.env.ctmpl" => "/opt/flask-app/.env"
+```
+
+If `/run/openbao-agent` exists after service start, the restart-safe configuration is working.
 
 
 ---
@@ -870,22 +909,54 @@ Use:
 
 ## Troubleshooting
 
-### 1. Userpass login works but access is limited
+### 1. Agent worked before reboot but failed after reboot
+
+Error example:
+
+```text
+error creating file sink: error opening temp file in dir /run/openbao-agent
+no such file or directory
+```
+
+Reason:
+
+```text
+/run is temporary and is cleared after reboot.
+```
+
+Fix:
+
+Make sure the systemd service has:
+
+```ini
+RuntimeDirectory=openbao-agent
+RuntimeDirectoryMode=0750
+```
+
+Then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart openbao-agent.service
+sudo systemctl status openbao-agent.service --no-pager
+```
+
+### 2. Userpass login works but access is limited
 That means the user’s policy is too narrow.
 Update the policy assigned to that user.
 
-### 2. AppRole page in the UI has no "create user"
+### 3. AppRole page in the UI has no "create user"
 That is normal.
 AppRole is for machines, so you create a **role**, not a human user.
 
-### 3. Agent fails with `$HOME is not defined`
+### 4. Agent fails with `$HOME is not defined`
 Add this to `openbao-agent.service`:
 
 ```ini
 Environment=HOME=/root
 ```
 
-### 4. Watcher enters a restart loop
+### 5. Watcher enters a restart loop
 Do not use `PathExists=` in the path unit.
 Use only:
 
@@ -893,17 +964,17 @@ Use only:
 PathChanged=/opt/flask-app/.env
 ```
 
-### 5. New keys do not show up in `.env`
+### 6. New keys do not show up in `.env`
 Make sure you are using the **generic template**, not a hardcoded template.
 
-### 6. App still uses old values
+### 7. App still uses old values
 Check:
 - Agent is running
 - `.env` timestamp changed
 - watcher restarted the app
 - app actually reads `.env` on startup
 
-### 7. Flask debug mode does not change
+### 8. Flask debug mode does not change
 If your code hardcodes `debug=True`, changing `DEBUG` in OpenBao will not change runtime behavior until code is fixed.
 
 ---
